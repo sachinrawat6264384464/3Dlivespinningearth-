@@ -7,6 +7,7 @@ const state = {
     events: [],
     filteredEvents: [],
     selectedEventId: null,
+    clickedCoordinatePoint: null,
     searchQuery: '',
     selectedCategory: 'all',
     isSimulating: false,
@@ -707,15 +708,7 @@ function updateHeaderStats() {
 
 // Filter the news list according to search term and category tabs
 function filterNewsData() {
-    if (state.selectedCategory === 'flights') {
-        state.filteredEvents = flightsDatabase.filter(flt => {
-            const searchLower = state.searchQuery.toLowerCase();
-            return flt.flightNumber.toLowerCase().includes(searchLower) ||
-                   flt.origin.toLowerCase().includes(searchLower) ||
-                   flt.destination.toLowerCase().includes(searchLower) ||
-                   flt.airline.toLowerCase().includes(searchLower);
-        });
-    } else if (state.selectedCategory === 'satellites') {
+    if (state.selectedCategory === 'satellites') {
         state.filteredEvents = satellitesDatabase.filter(sat => {
             const searchLower = state.searchQuery.toLowerCase();
             return sat.name.toLowerCase().includes(searchLower) ||
@@ -755,10 +748,10 @@ function renderNewsList() {
         card.className = `news-card ${evt.id === state.selectedEventId ? 'active' : ''}`;
         card.setAttribute('data-id', evt.id);
         
-        const elapsed = evt.category === 'flights' ? 'ACTIVE' : (evt.category === 'satellites' ? 'ORBITING' : formatTimeElapsed(evt.timestamp));
-        const locationHTML = evt.category === 'flights' ? `<i data-lucide="plane"></i> ${evt.originCity} ➔ ${evt.destinationCity}` : (evt.category === 'satellites' ? `<i data-lucide="satellite"></i> Alt: ${Math.round(evt.altitude * 6371)} km` : `<i data-lucide="map-pin"></i> ${evt.location}`);
-        const sourceHTML = evt.category === 'flights' ? `<i data-lucide="gauge"></i> Cruising at ${evt.altitudeFt}` : (evt.category === 'satellites' ? `<i data-lucide="gauge"></i> Speed: ${evt.speed}` : `<i data-lucide="shield-check"></i> ${evt.sources[0]?.name || 'Media Source'}`);
-        const titleHTML = evt.category === 'flights' ? `${evt.airline} Flight ${evt.flightNumber}` : (evt.category === 'satellites' ? evt.name : evt.title);
+        const elapsed = evt.category === 'satellites' ? 'ORBITING' : formatTimeElapsed(evt.timestamp);
+        const locationHTML = evt.category === 'satellites' ? `<i data-lucide="satellite"></i> Alt: ${Math.round(evt.altitude * 6371)} km` : `<i data-lucide="map-pin"></i> ${evt.location}`;
+        const sourceHTML = evt.category === 'satellites' ? `<i data-lucide="gauge"></i> Speed: ${evt.speed}` : `<i data-lucide="shield-check"></i> ${evt.sources[0]?.name || 'Media Source'}`;
+        const titleHTML = evt.category === 'satellites' ? evt.name : evt.title;
 
         card.innerHTML = `
             <div class="card-header">
@@ -797,76 +790,39 @@ function updateGlobePoints() {
     const rings = [];
 
     if (state.selectedCategory === 'satellites') {
-        // Clear surface news points & flight arcs in satellite radar mode
+        // Clear surface news points & arcs in satellite radar mode
         globeInstance.pointsData([]);
         globeInstance.arcsData([]);
         globeInstance.ringsData([]);
-    } else if (state.selectedCategory === 'flights') {
-        // In flight radar mode, show airports (starts/ends) as points and flight arcs
-        const airportPoints = [];
-        flightsDatabase.forEach(flt => {
-            const startPt = {
-                id: `${flt.id}-start`,
-                title: `Origin: ${flt.origin}`,
-                location: flt.origin,
-                category: 'flights',
-                lat: flt.startLat,
-                lng: flt.startLng
-            };
-            const endPt = {
-                id: `${flt.id}-end`,
-                title: `Destination: ${flt.destination}`,
-                location: flt.destination,
-                category: 'flights',
-                lat: flt.endLat,
-                lng: flt.endLng
-            };
-            airportPoints.push(startPt);
-            airportPoints.push(endPt);
-            
-            // Add rings to all airport locations
-            rings.push(startPt);
-            rings.push(endPt);
-        });
-        globeInstance.pointsData(airportPoints);
-        globeInstance.arcsData(state.filteredEvents);
-    } else if (state.selectedCategory === 'all') {
-        // In default 'all' mode, show both news points and flight arcs
+    } else {
+        // Show filtered news points, no arcs
         globeInstance.pointsData(state.filteredEvents);
-        globeInstance.arcsData(flightsDatabase);
+        globeInstance.arcsData([]);
         
         // Add rings to all active news events
         state.filteredEvents.forEach(e => {
             rings.push(e);
         });
-    } else {
-        // Otherwise only show filtered news points and hide flight arcs
-        globeInstance.pointsData(state.filteredEvents);
-        globeInstance.arcsData([]);
-        
-        // Add rings to all filtered news events
-        state.filteredEvents.forEach(e => {
-            rings.push(e);
-        });
-    }
-    
-    // Add extra rings to selected flight points to make them stand out
-    if (state.selectedEventId && state.selectedCategory === 'flights') {
-        const selectedFlight = flightsDatabase.find(f => f.id === state.selectedEventId);
-        if (selectedFlight) {
-            rings.push({ lat: selectedFlight.startLat, lng: selectedFlight.startLng, category: 'flights' });
-            rings.push({ lat: selectedFlight.endLat, lng: selectedFlight.endLng, category: 'flights' });
-        }
     }
 
     // Toggle paths rendering based on satellite tracking mode
     globeInstance.pathsData(state.selectedCategory === 'satellites' ? pregeneratedSatelliteOrbits : []);
+    
+    // Add user clicked custom coordinates point for reverse geocoding rings
+    if (state.clickedCoordinatePoint) {
+        rings.push({
+            lat: state.clickedCoordinatePoint.lat,
+            lng: state.clickedCoordinatePoint.lng,
+            category: 'breaking'
+        });
+    }
     
     globeInstance.ringsData(rings);
 }
 
 // Select a news event, focus camera, and slide details panel in
 function selectEvent(event) {
+    state.clickedCoordinatePoint = null; // Reset custom click tag on standard event selection
     if (state.selectedEventId === event.id) {
         // Toggle zoom camera back to centered position if clicked again
         resetCameraView();
@@ -930,6 +886,164 @@ function selectEvent(event) {
         updateGlobePoints();
     }
 
+// Handle real-time reverse geocoding on any point clicked on the 3D globe surface
+function handleGlobeClick(coords) {
+    // Clear active highlights on the news list cards
+    document.querySelectorAll('.news-card').forEach(card => card.classList.remove('active'));
+    
+    state.selectedEventId = `click-${Date.now()}`;
+    state.clickedCoordinatePoint = coords;
+    
+    // Play radar notification beep
+    AudioController.playBeep(520, 0.2);
+    
+    // Smoothly pan camera to clicked coordinate
+    if (globeInstance) {
+        globeInstance.pointOfView({
+            lat: coords.lat,
+            lng: coords.lng,
+            altitude: getResponsiveAltitude(1.3)
+        }, 1000);
+    }
+    
+    // Refresh points layer to render user's clicked radar rings
+    updateGlobePoints();
+    
+    // Create query event descriptor
+    const clickedLocationEvent = {
+        id: state.selectedEventId,
+        lat: coords.lat,
+        lng: coords.lng,
+        category: "breaking"
+    };
+    
+    // Show scanning panel state
+    populateDetailsPanelWithLoadingQuery(clickedLocationEvent);
+    
+    // Call free OpenStreetMap Nominatim reverse geocoding API
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${coords.lat}&lon=${coords.lng}&format=json&accept-language=en`;
+    fetch(url, {
+        headers: {
+            'User-Agent': '3DLiveNewsGlobeTracker/1.0 (sachinrawat6264384464)'
+        }
+    })
+    .then(res => {
+        if (!res.ok) throw new Error("Network response error.");
+        return res.json();
+    })
+    .then(data => {
+        if (data && data.address) {
+            const addr = data.address;
+            const country = addr.country || "";
+            const stateName = addr.state || addr.region || addr.province || addr.territory || "";
+            const city = addr.city || addr.town || addr.village || addr.suburb || addr.hamlet || addr.county || addr.municipality || "Selected Location";
+            
+            populateDetailsPanelWithGeocoding(clickedLocationEvent, city, stateName, country, data.display_name || "Custom Coordinate");
+        } else {
+            populateDetailsPanelWithGeocoding(clickedLocationEvent, "Open Ocean", "None", "None", "International Waters (No active land borders)");
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        populateDetailsPanelWithGeocoding(clickedLocationEvent, "Geospatial Coordinate", "Query Offline", "None", `Lat: ${coords.lat.toFixed(4)}, Lng: ${coords.lng.toFixed(4)}`);
+    });
+}
+
+// Display scanning loading indicator in details drawer
+function populateDetailsPanelWithLoadingQuery(evt) {
+    const panel = document.getElementById('detail-panel');
+    const badge = document.getElementById('detail-badge');
+    const banner = document.getElementById('detail-category-banner');
+    const detailLat = document.getElementById('detail-lat');
+    const detailLng = document.getElementById('detail-lng');
+    const detailSummary = document.getElementById('detail-summary');
+    const sourcesContainer = document.getElementById('detail-sources-list');
+    const linkBtn = document.getElementById('detail-source-link');
+    
+    banner.className = `banner-gradient-breaking`;
+    badge.innerText = "RADAR SCANNING...";
+    badge.className = `badge badge-breaking`;
+    
+    document.getElementById('detail-location').innerText = "Querying Database...";
+    document.getElementById('detail-time').innerText = "RADAR SCANNING...";
+    document.getElementById('detail-title').innerText = "Locating Coordinate...";
+    
+    detailLat.innerText = `${Math.abs(evt.lat).toFixed(4)}° ${evt.lat >= 0 ? 'N' : 'S'}`;
+    detailLng.innerText = `${Math.abs(evt.lng).toFixed(4)}° ${evt.lng >= 0 ? 'E' : 'W'}`;
+    
+    detailSummary.innerHTML = `
+        <div style="text-align:center; padding: 28px 0; color: var(--text-muted);">
+            <div class="loader-ring" style="display:inline-block; border: 3px solid rgba(0,240,255,0.1); border-top: 3px solid #00f0ff; border-radius:50%; width:32px; height:32px; animation: spin-anim 1s linear infinite; margin-bottom:12px;"></div>
+            <p style="font-size:12px; line-height:1.4;">Querying OpenStreetMap geospatial database for cities, states, districts, and country records at this coordinate...</p>
+        </div>
+        <style>
+            @keyframes spin-anim {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+        </style>
+    `;
+    
+    sourcesContainer.innerHTML = '';
+    linkBtn.href = "#";
+    linkBtn.querySelector('span').innerText = "Loading Coordinate...";
+    
+    panel.classList.remove('closed');
+}
+
+// Populate details drawer with rich OSM geocoded city, state, country details
+function populateDetailsPanelWithGeocoding(evt, city, stateName, country, displayName) {
+    const panel = document.getElementById('detail-panel');
+    const badge = document.getElementById('detail-badge');
+    const banner = document.getElementById('detail-category-banner');
+    const detailLat = document.getElementById('detail-lat');
+    const detailLng = document.getElementById('detail-lng');
+    const detailSummary = document.getElementById('detail-summary');
+    const sourcesContainer = document.getElementById('detail-sources-list');
+    const linkBtn = document.getElementById('detail-source-link');
+    
+    banner.className = `banner-gradient-breaking`;
+    badge.innerText = "GEOTAG QUERY";
+    badge.className = `badge badge-breaking`;
+    
+    document.getElementById('detail-location').innerText = country || "International Waters";
+    document.getElementById('detail-time').innerText = "LIVE COORDINATE RADAR";
+    document.getElementById('detail-title').innerText = city;
+    
+    detailLat.innerText = `${Math.abs(evt.lat).toFixed(4)}° ${evt.lat >= 0 ? 'N' : 'S'}`;
+    detailLng.innerText = `${Math.abs(evt.lng).toFixed(4)}° ${evt.lng >= 0 ? 'E' : 'W'}`;
+    
+    detailSummary.innerHTML = `
+        <p style="margin-bottom:14px; font-size:12.5px; line-height:1.5;">You clicked on the 3D globe surface. The geospatial search radar has parsed this location's geographic details:</p>
+        <div class="geotag-box" style="margin-top:14px; background: rgba(0, 240, 255, 0.05); border: 1px solid rgba(0, 240, 255, 0.15); padding:12px; border-radius:8px;">
+            <div class="geo-label" style="font-size:10px; color:#00f0ff; letter-spacing:1px; font-weight:bold; margin-bottom:8px;">RADAR SCAN RESULTS</div>
+            <div class="geo-values" style="display:flex; flex-direction:column; gap:6px; font-family:monospace; font-size:11px; user-select:text;">
+                <div>NAME/CITY: <span class="text-accent" style="color:#00f0ff;">${city}</span></div>
+                <div>STATE/REGION: <span class="text-accent" style="color:#00f0ff;">${stateName || 'N/A'}</span></div>
+                <div>COUNTRY: <span class="text-accent" style="color:#00f0ff;">${country || 'International Waters'}</span></div>
+                <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top:6px; margin-top:4px;">
+                    FULL ADDRESS: <span class="text-accent" style="color:var(--text-muted); font-size:10px; display:block; margin-top:2px; line-height:1.3;">${displayName}</span>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    sourcesContainer.innerHTML = `
+        <div class="source-item" style="display:flex; justify-content:between; align-items:center; background:rgba(255,255,255,0.03); padding:8px 12px; border-radius:6px;">
+            <div class="source-info" style="display:flex; align-items:center; gap:8px;">
+                <span class="source-dot" style="background-color: #00f0ff; width:6px; height:6px; border-radius:50%;"></span>
+                <span style="font-size:11px;">OSM Nominatim Reverse Geocoder</span>
+            </div>
+            <span class="source-reliability" style="font-size:10px; color:#00f0ff; font-weight:bold;">ONLINE DB</span>
+        </div>
+    `;
+    
+    linkBtn.href = `https://www.openstreetmap.org/#map=13/${evt.lat}/${evt.lng}`;
+    linkBtn.querySelector('span').innerText = "Open on OpenStreetMap";
+    
+    panel.classList.remove('closed');
+}
+
 // Fill details aside panel with event details data
 function populateDetailsPanel(evt) {
     const panel = document.getElementById('detail-panel');
@@ -948,40 +1062,7 @@ function populateDetailsPanel(evt) {
     badge.innerText = evt.category;
     badge.className = `badge badge-${evt.category}`;
     
-    if (evt.category === 'flights') {
-        document.getElementById('detail-location').innerText = `En Route (Cruising)`;
-        document.getElementById('detail-time').innerText = "LIVE SIGNAL";
-        document.getElementById('detail-title').innerText = `${evt.airline} Flight ${evt.flightNumber}`;
-        detailLat.innerText = `${evt.originCity}`;
-        detailLng.innerText = `${evt.destinationCity}`;
-        
-        detailSummary.innerHTML = `
-            <p>${evt.summary}</p>
-            <div class="geotag-box" style="margin-top:14px; background: rgba(0, 240, 255, 0.05); border-color: rgba(0, 240, 255, 0.15);">
-                <div class="geo-label">FLIGHT TELEMETRY DATA</div>
-                <div class="geo-values" style="display:flex; flex-direction:column; gap:5px; font-family:monospace; font-size:11px; margin-top:6px; user-select:text;">
-                    <div>AIRCRAFT: <span class="text-accent">${evt.aircraft}</span></div>
-                    <div>AIRSPEED: <span class="text-accent">${evt.speed}</span></div>
-                    <div>CRUISE ALT: <span class="text-accent">${evt.altitudeFt}</span></div>
-                    <div>TOTAL ROUTE: <span class="text-accent">${evt.distance}</span></div>
-                    <div>STATUS: <span class="text-accent" style="color:var(--success); font-weight:bold;">${evt.status}</span></div>
-                </div>
-            </div>
-        `;
-        
-        sourcesContainer.innerHTML = `
-            <div class="source-item">
-                <div class="source-info">
-                    <span class="source-dot"></span>
-                    <span>Transponder Telemetry GPS</span>
-                </div>
-                <span class="source-reliability">ACTIVE FEED</span>
-            </div>
-        `;
-        
-        linkBtn.href = "#";
-        linkBtn.querySelector('span').innerText = "Open Route Map (Mock)";
-    } else if (evt.category === 'satellites') {
+    if (evt.category === 'satellites') {
         document.getElementById('detail-location').innerText = `Orbiting Outer Space`;
         document.getElementById('detail-time').innerText = "LIVE SPACE TELEMETRY";
         document.getElementById('detail-title').innerText = evt.name;
@@ -1470,6 +1551,9 @@ function initGlobe() {
         .globeImageUrl(globeStyleMaps[state.globeStyle].globeImageUrl)
         .bumpImageUrl(globeStyleMaps[state.globeStyle].bumpImageUrl)
         .backgroundImageUrl('https://unpkg.com/three-globe/example/img/night-sky.png')
+        .onGlobeClick((coords, event) => {
+            handleGlobeClick(coords);
+        })
         .showAtmosphere(true)
         .atmosphereColor('#00f0ff')
         
@@ -1644,8 +1728,8 @@ function startFlightProgressLoop() {
     });
     
     flightProgressTimer = setInterval(() => {
-        // If category is not flights, satellites, or all, clear html elements
-        if (state.selectedCategory !== 'flights' && state.selectedCategory !== 'satellites' && state.selectedCategory !== 'all') {
+        // If category is not satellites or all, clear html elements
+        if (state.selectedCategory !== 'satellites' && state.selectedCategory !== 'all') {
             if (globeInstance) {
                 globeInstance.htmlElementsData([]);
             }
@@ -1653,55 +1737,6 @@ function startFlightProgressLoop() {
         }
         
         let activeElements = [];
-        
-        // 1. Calculate and update flights
-        if (state.selectedCategory === 'flights' || state.selectedCategory === 'all') {
-            const activeAirplanes = flightsDatabase.map(flt => {
-                // Update progress
-                flt.progress += 0.0018; // Slow down speed slightly for realistic pacing
-                if (flt.progress > 1) {
-                    flt.progress = 0; // Loop flight route
-                }
-                
-                // Interpolate position along the path (with shortest-path wrap-around support)
-                const lat = flt.startLat + flt.progress * (flt.endLat - flt.startLat);
-                
-                let startLng = flt.startLng;
-                let endLng = flt.endLng;
-                let dLng = endLng - startLng;
-                if (Math.abs(dLng) > 180) {
-                    if (dLng > 0) {
-                        startLng += 360;
-                    } else {
-                        endLng += 360;
-                    }
-                }
-                
-                let lng = startLng + flt.progress * (endLng - startLng);
-                if (lng > 180) lng -= 360;
-                if (lng < -180) lng += 360;
-                
-                // Flat cruising altitude directly following the surface route
-                const altitude = 0.015;
-                
-                // Calculate heading angle
-                const dy = flt.endLat - flt.startLat;
-                const dx = endLng - startLng;
-                const angle = Math.atan2(dy, dx) * 180 / Math.PI;
-                const heading = 90 - angle; // Adjust for SVG vertical alignment
-                
-                return {
-                    id: flt.id,
-                    title: `${flt.airline} ${flt.flightNumber}`,
-                    category: 'flights',
-                    lat,
-                    lng,
-                    altitude,
-                    heading
-                };
-            });
-            activeElements = activeElements.concat(activeAirplanes);
-        }
         
         // 2. Calculate and update satellites
         let activeSatellites = [];
