@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+        window.addEventListener('error', function(e) {
+            const errDiv = document.createElement('div');
+            errDiv.style.position = 'fixed';
+            errDiv.style.top = '0';
+            errDiv.style.left = '0';
+            errDiv.style.width = '100%';
+            errDiv.style.background = 'rgba(255, 0, 0, 0.95)';
+            errDiv.style.color = '#fff';
+            errDiv.style.padding = '24px';
+            errDiv.style.zIndex = '999999';
+            errDiv.style.fontFamily = 'monospace';
+            errDiv.style.fontSize = '14px';
+            errDiv.style.whiteSpace = 'pre-wrap';
+            errDiv.innerText = 'JS Error: ' + e.message + '\nFile: ' + e.filename + ' L:' + e.lineno + ' C:' + e.colno + '\nStack:\n' + (e.error ? e.error.stack : 'No stack');
+            document.body.appendChild(errDiv);
+        });
+        window.addEventListener('unhandledrejection', function(e) {
+            const errDiv = document.createElement('div');
+            errDiv.style.position = 'fixed';
+            errDiv.style.top = '0';
+            errDiv.style.left = '0';
+            errDiv.style.width = '100%';
+            errDiv.style.background = 'rgba(255, 100, 0, 0.95)';
+            errDiv.style.color = '#fff';
+            errDiv.style.padding = '24px';
+            errDiv.style.zIndex = '999999';
+            errDiv.style.fontFamily = 'monospace';
+            errDiv.style.fontSize = '14px';
+            errDiv.style.whiteSpace = 'pre-wrap';
+            errDiv.innerText = 'Promise Rejection: ' + e.reason;
+            document.body.appendChild(errDiv);
+        });
+    </script>
+    <title>Global Insights - Live 3D News Globe Tracker</title>
+    <!-- Google Fonts: Inter for UI, Outfit for Headings -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons for premium visual indicator icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Three.js and Globe.gl for 3D Earth rendering -->
+    <script src="https://unpkg.com/three@0.146.0/build/three.min.js"></script>
+    <script src="https://unpkg.com/globe.gl@2.28.0/dist/globe.gl.min.js"></script>
+    
+    <!-- Custom CSS stylesheet -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Fullscreen Starfield Background -->
+    <div id="stars-background"></div>
+    <div id="glow-overlay"></div>
+
+    <div class="app-container">
+        <!-- TOP NAVIGATION & CONTROLS -->
+        <header class="app-header glass-panel">
+            <div class="header-logo">
+                <div class="pulse-ring-logo"></div>
+                <i data-lucide="globe-2" class="logo-icon text-accent"></i>
+                <div class="logo-text">
+                    <h1>GLOBAL INSIGHTS</h1>
+                    <span class="sub-logo">3D LIVE NEWS GEOSPATIAL TRACKER</span>
+                </div>
+            </div>
+            
+            <div class="header-stats">
+                <div class="stat-box">
+                    <span class="stat-label">ACTIVE ALERTS</span>
+                    <span id="stat-active-count" class="stat-value text-danger">0</span>
+                </div>
+                <div class="stat-divider"></div>
+                <div class="stat-box">
+                    <span class="stat-label">DISASTERS</span>
+                    <span id="stat-disaster-count" class="stat-value text-warning">0</span>
+                </div>
+                <div class="stat-divider"></div>
+                <div class="stat-box">
+                    <span class="stat-label">CONFLICTS</span>
+                    <span id="stat-conflict-count" class="stat-value text-accent">0</span>
+                </div>
+            </div>
+
+            <div class="header-actions">
+                <button id="btn-simulation" class="btn btn-secondary" title="Toggle real-time news alert simulation">
+                    <i data-lucide="play" class="btn-icon"></i>
+                    <span>SIMULATOR OFF</span>
+                </button>
+                <button id="btn-audio" class="btn btn-icon-only" title="Toggle Sound FX">
+                    <i data-lucide="volume-2" id="audio-icon"></i>
+                </button>
+                <button id="btn-settings" class="btn btn-icon-only" title="API Configuration">
+                    <i data-lucide="settings"></i>
+                </button>
+                <button id="btn-reset-camera" class="btn btn-icon-only" title="Reset Camera View">
+                    <i data-lucide="rotate-ccw"></i>
+                </button>
+                <div class="live-clock">
+                    <i data-lucide="clock" class="clock-icon"></i>
+                    <span id="current-time">12:00:00 UTC</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- MAIN LAYOUT -->
+        <main class="app-body">
+            <!-- LEFT PANEL: NEWS FEED -->
+            <section class="left-panel glass-panel">
+                <div class="panel-header">
+                    <h2>NEWS RADAR</h2>
+                    <div class="search-box">
+                        <i data-lucide="search" class="search-icon"></i>
+                        <input type="text" id="search-input" placeholder="Search events, cities, keywords...">
+                    </div>
+                </div>
+
+                <!-- CATEGORY FILTER TABS -->
+                <div class="category-tabs">
+                    <button class="tab-btn active" data-category="all">
+                        <i data-lucide="layout-grid"></i> All
+                    </button>
+                    <button class="tab-btn" data-category="breaking">
+                        <i data-lucide="zap"></i> Breaking
+                    </button>
+                    <button class="tab-btn" data-category="disaster">
+                        <i data-lucide="cloud-lightning"></i> Disasters
+                    </button>
+                    <button class="tab-btn" data-category="conflict">
+                        <i data-lucide="shield-alert"></i> Conflicts
+                    </button>
+                    <button class="tab-btn" data-category="tech">
+                        <i data-lucide="cpu"></i> Tech & Sci
+                    </button>
+                    <button class="tab-btn" data-category="politics">
+                        <i data-lucide="landmark"></i> Politics
+                    </button>
+                    <button class="tab-btn" data-category="flights">
+                        <i data-lucide="plane"></i> Flights
+                    </button>
+                    <button class="tab-btn" data-category="satellites">
+                        <i data-lucide="satellite"></i> Satellites
+                    </button>
+                </div>
+
+                <!-- SCROLLABLE NEWS LIST -->
+                <div class="news-list-container">
+                    <div id="news-list" class="news-list">
+                        <!-- News cards will be dynamically injected here -->
+                    </div>
+                    <div id="empty-state" class="empty-state hidden">
+                        <i data-lucide="inbox"></i>
+                        <p>No matching active events found.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- MIDDLE AREA: 3D GLOBE CONTAINER -->
+            <section class="globe-viewport">
+                <div id="globe-container"></div>
+                
+                <!-- Globe HUD / Controls overlay -->
+                <div class="globe-hud glass-panel">
+                    <div class="hud-item">
+                        <span class="hud-label">COORDS:</span>
+                        <span id="hud-coords" class="hud-value">0.000° N, 0.000° E</span>
+                    </div>
+                    <div class="hud-item-divider"></div>
+                    <div class="hud-item">
+                        <span class="hud-label">ROTATION:</span>
+                        <button id="btn-toggle-rotation" class="hud-toggle active" title="Toggle Globe Auto-Rotation">AUTO</button>
+                    </div>
+                    <div class="hud-item-divider"></div>
+                    <div class="hud-item">
+                        <span class="hud-label">MAP VIEW:</span>
+                        <select id="select-globe-style" class="hud-select">
+                            <option value="night">Satellite Night</option>
+                            <option value="day">Blue Marble</option>
+                            <option value="dark">Stealth Grid</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Floating incoming alert card notification -->
+                <div id="live-alert-notification" class="live-alert-toast hidden">
+                    <div class="toast-indicator"></div>
+                    <div class="toast-content">
+                        <div class="toast-header">
+                            <span class="badge badge-breaking">LIVE ALERT TRIGGERED</span>
+                            <span id="toast-time">JUST NOW</span>
+                        </div>
+                        <h4 id="toast-title">New Event Title Here</h4>
+                        <p id="toast-desc">Location and short brief details go here...</p>
+                    </div>
+                    <button id="btn-close-toast" class="btn-close">
+                        <i data-lucide="x"></i>
+                    </button>
+                </div>
+            </section>
+
+            <!-- RIGHT PANEL: DETAILED INSIGHT -->
+            <aside class="right-panel glass-panel closed" id="detail-panel">
+                <button id="btn-close-detail" class="btn-close-detail" title="Close details">
+                    <i data-lucide="chevrons-right"></i>
+                </button>
+
+                <div class="detail-scroll-container">
+                    <div class="detail-header-visual">
+                        <div id="detail-category-banner" class="banner-gradient-disaster"></div>
+                        <span id="detail-badge" class="badge">DISASTER</span>
+                        <div class="detail-meta">
+                            <div class="meta-item">
+                                <i data-lucide="map-pin"></i>
+                                <span id="detail-location">Tokyo, Japan</span>
+                            </div>
+                            <div class="meta-item">
+                                <i data-lucide="calendar"></i>
+                                <span id="detail-time">2 hours ago</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="detail-content">
+                        <h2 id="detail-title">Earthquake of Magnitude 6.4 Strikes off Honshu Coast</h2>
+                        
+                        <div class="geotag-box">
+                            <div class="geo-label">GEOGRAPHIC COORDINATES</div>
+                            <div class="geo-values">
+                                <div>LAT: <span id="detail-lat" class="text-accent">35.6762°</span></div>
+                                <div>LNG: <span id="detail-lng" class="text-accent">139.6503°</span></div>
+                            </div>
+                        </div>
+
+                        <div class="detail-description">
+                            <h3>EVENT BRIEF</h3>
+                            <p id="detail-summary">A moderate earthquake has registered near Japan's eastern coast. Local emergency responses are active. Seismic monitoring services reported the epicenter at a depth of 24km. No tsunami warnings have been issued at this time, but tremors were felt widely across metropolitan Tokyo.</p>
+                        </div>
+
+                        <div class="detail-sources">
+                            <h3>VERIFIED SOURCES & COVERAGE</h3>
+                            <div class="sources-list" id="detail-sources-list">
+                                <!-- Sources will be dynamically created here -->
+                            </div>
+                        </div>
+
+                        <div class="detail-actions">
+                            <a id="detail-source-link" href="#" target="_blank" class="btn btn-primary btn-full">
+                                <i data-lucide="external-link"></i>
+                                <span>View Original Coverage</span>
+                            </a>
+                            <button id="btn-share" class="btn btn-secondary">
+                                <i data-lucide="share-2"></i>
+                                <span>Copy Intel Coordinates</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <!-- API CONFIGURATION SETTINGS MODAL -->
+    <div id="settings-modal" class="modal-overlay hidden">
+        <div class="modal-content glass-panel">
+            <div class="modal-header">
+                <h3><i data-lucide="settings" class="text-accent"></i> GLOBAL INTEL CONFIG</h3>
+                <button id="btn-close-settings" class="btn-close" title="Close Settings">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="select-news-source">NEWS FEED SOURCE</label>
+                    <select id="select-news-source" class="form-control">
+                        <option value="local">Local Simulator (Offline Mock Database)</option>
+                        <option value="gnews">Live Global News (GNews.io API)</option>
+                    </select>
+                    <small class="form-help">Choose between built-in historical simulated database or live global headlines.</small>
+                </div>
+                
+                <div id="gnews-api-key-group" class="form-group hidden">
+                    <label for="input-gnews-key">GNEWS API KEY</label>
+                    <div class="input-password-wrapper">
+                        <input type="password" id="input-gnews-key" class="form-control" placeholder="Paste your gnews.io API key here...">
+                    </div>
+                    <small class="form-help">
+                        Don't have an API Key? Get a free key in 30 seconds at 
+                        <a href="https://gnews.io/" target="_blank" class="text-accent">gnews.io</a> (No credit card required).
+                    </small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-save-settings" class="btn btn-primary btn-full">
+                    <i data-lucide="check"></i> Save and Apply Config
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom JavaScript logic -->
+    <script src="app.js?v=11"></script>
+</body>
+</html>
